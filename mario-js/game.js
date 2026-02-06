@@ -151,6 +151,11 @@ class Player {
 
         this.grounded = false;
 
+        // Double Jump
+        this.jumpCount = 0;
+        this.maxJumps = 2;
+        this.jumpPressed = false; // To prevent holding jump to fly
+
         this.color = '#ff0000'; // Mario Red
     }
 
@@ -162,9 +167,22 @@ class Player {
         if (this.game.input.keys.right) {
             this.vx += this.speed;
         }
-        if (this.game.input.keys.jump && this.grounded) {
-            this.vy = this.jumpStrength;
-            this.grounded = false;
+
+        // Jump Logic
+        if (this.game.input.keys.jump) {
+            if (!this.jumpPressed) {
+                if (this.grounded || this.jumpCount < this.maxJumps) {
+                    this.vy = this.jumpStrength;
+                    this.grounded = false;
+                    this.jumpCount++;
+
+                    // Slightly weaker second jump? Optional.
+                    // if (this.jumpCount > 1) this.vy = this.jumpStrength * 0.8;
+                }
+                this.jumpPressed = true;
+            }
+        } else {
+            this.jumpPressed = false;
         }
 
         // Apply Physics
@@ -265,6 +283,7 @@ class Player {
                 this.y = (Math.floor(bottom / this.game.map.tileSize) * this.game.map.tileSize) - this.height;
                 this.vy = 0;
                 this.grounded = true;
+                this.jumpCount = 0; // Reset jumps on landing
             }
         } else if (this.vy < 0) { // Jumping up
             if (tl === 1 || tr === 1) {
@@ -479,13 +498,27 @@ class Enemy {
     update(deltaTime) {
         this.x += this.vx;
 
-        // Simple AI: Turn around at walls or edges
+        // Simple Gravity for enemies so they sit on ground
+        this.y += 2;
+
+        // Collision Y (Ground check for gravity)
+        let bottom = this.y + this.height;
         let left = this.x;
         let right = this.x + this.width;
-        // Check slightly below for ground
-        let bottom = this.y + this.height + 1;
 
-        let bl = this.game.map.getTileAt(left, bottom);
+        // If sinking into floor, push up
+        let bl_foot = this.game.map.getTileAt(left, bottom);
+        let br_foot = this.game.map.getTileAt(right, bottom);
+
+        if (bl_foot === 1 || br_foot === 1) {
+             this.y = (Math.floor(bottom / this.game.map.tileSize) * this.game.map.tileSize) - this.height;
+        }
+
+        // Simple AI: Turn around at walls or edges
+        // Check slightly below for ground (cliff detection)
+        let checkBottom = this.y + this.height + 1;
+
+        let bl = this.game.map.getTileAt(left, checkBottom);
         let br = this.game.map.getTileAt(right, bottom);
 
         let tl = this.game.map.getTileAt(left, this.y);
