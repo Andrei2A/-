@@ -29,10 +29,10 @@ class Level {
     constructor(width, height) {
         this.tileSize = 40;
         this.rows = height / this.tileSize;
-        this.cols = width / this.tileSize;
+        // Make level 3x wider than screen
+        this.cols = (width * 3) / this.tileSize;
 
-        // 0 = Air, 1 = Ground/Brick, 2 = Platform, 9 = Finish
-        // Simple map generation
+        // 0 = Air, 1 = Ground/Brick, 2 = Tube, 3 = Pit, 9 = Finish
         this.map = [];
         this.initMap();
     }
@@ -42,37 +42,56 @@ class Level {
         for (let r = 0; r < this.rows; r++) {
             let row = [];
             for (let c = 0; c < this.cols; c++) {
-                // Floor
-                if (r === this.rows - 1 || r === this.rows - 2) {
-                    row.push(1);
+                // Default Air
+                let tile = 0;
+
+                // Ground Floor (except pits)
+                if (r >= this.rows - 2) {
+                    tile = 1;
+                    // Pit 1
+                    if (c > 20 && c < 25) tile = 0;
+                    // Pit 2
+                    if (c > 45 && c < 50) tile = 0;
                 }
-                // Walls
-                else if (c === 0 || c === this.cols - 1) {
-                    row.push(1);
+
+                // Walls at ends
+                if (c === 0 || c === this.cols - 1) {
+                    tile = 1;
                 }
+
                 // Platforms
-                else if (r === 10 && c > 5 && c < 10) {
-                    row.push(1);
+                // Area 1
+                if (r === 10 && c > 5 && c < 10) tile = 1;
+                if (r === 7 && c > 10 && c < 15) tile = 1;
+
+                // Area 2 (After first pit)
+                if (r === 9 && c > 28 && c < 33) tile = 1;
+                if (r === 5 && c > 34 && c < 38) tile = 1;
+
+                // Tubes (Green blocks for now)
+                if (r === this.rows - 3 && c === 18) tile = 2; // Short tube
+                if (r === this.rows - 4 && c === 18) tile = 2;
+
+                if (r >= this.rows - 4 && c === 40) tile = 2; // Tall tube
+
+                // Staircase to finish
+                if (c > 52 && c < 58) {
+                   if (r >= this.rows - 2 - (c - 52)) tile = 1;
                 }
-                else if (r === 7 && c > 10 && c < 15) {
-                    row.push(1);
+
+                // Finish line
+                if (r === this.rows - 5 && c === this.cols - 3) {
+                    tile = 9;
                 }
-                else if (r === 4 && c > 2 && c < 6) {
-                    row.push(1);
-                }
-                 // Finish line (Castle area)
-                else if (r === this.rows - 3 && c === this.cols - 2) {
-                    row.push(9);
-                }
-                else {
-                    row.push(0);
-                }
+
+                row.push(tile);
             }
             this.map.push(row);
         }
     }
 
     draw(ctx) {
+        // Optimization: only draw visible tiles? For now draw all is fine for small maps.
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
                 let tile = this.map[r][c];
@@ -85,6 +104,11 @@ class Level {
                         ctx.fillRect(x, y, this.tileSize, this.tileSize);
                         // Bevel effect
                         ctx.strokeStyle = '#5c2e0a';
+                        ctx.strokeRect(x, y, this.tileSize, this.tileSize);
+                    } else if (tile === 2) {
+                        ctx.fillStyle = '#228B22'; // Tube Green
+                        ctx.fillRect(x, y, this.tileSize, this.tileSize);
+                        ctx.strokeStyle = '#006400';
                         ctx.strokeRect(x, y, this.tileSize, this.tileSize);
                     } else if (tile === 9) {
                         ctx.fillStyle = '#FFD700'; // Gold finish
@@ -162,7 +186,10 @@ class Player {
 
         // Screen Boundaries
         if (this.x < 0) { this.x = 0; this.vx = 0; }
-        if (this.x + this.width > this.game.width) { this.x = this.game.width - this.width; this.vx = 0; }
+        // Remove right boundary check relative to screen, now it's map
+        let mapWidth = this.game.map.cols * this.game.map.tileSize;
+        if (this.x + this.width > mapWidth) { this.x = mapWidth - this.width; this.vx = 0; }
+
         // Fall off map
         if (this.y > this.game.height) {
             this.reset();
@@ -194,8 +221,7 @@ class Player {
 
         // Check for Win
         if (tr === 9 || br === 9 || tl === 9 || bl === 9) {
-             alert("YOU WIN!");
-             this.reset();
+             this.game.win = true;
         }
     }
 
@@ -217,7 +243,7 @@ class Player {
                     enemies.splice(i, 1);
                 } else {
                     // Die
-                    this.reset();
+                    this.game.gameOver = true;
                 }
             }
         }
@@ -249,23 +275,49 @@ class Player {
     }
 
     reset() {
-        this.x = 100;
-        this.y = 100;
-        this.vx = 0;
-        this.vy = 0;
+        // Fall off map
+        this.game.gameOver = true;
     }
 
     draw(ctx) {
+        // Body (Red Square)
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.width, this.height);
 
-        // Simple eyes to show direction
-        ctx.fillStyle = "white";
+        // Hat (Visor)
+        ctx.fillStyle = "#8b0000";
         if (this.vx >= 0) {
-             ctx.fillRect(this.x + 20, this.y + 5, 5, 5);
+            ctx.fillRect(this.x + 10, this.y, 24, 6);
         } else {
-             ctx.fillRect(this.x + 5, this.y + 5, 5, 5);
+            ctx.fillRect(this.x - 4, this.y, 24, 6);
         }
+
+        // Face (Flesh tone)
+        ctx.fillStyle = "#ffcc99";
+        if (this.vx >= 0) {
+            ctx.fillRect(this.x + 10, this.y + 6, 16, 14);
+        } else {
+            ctx.fillRect(this.x + 4, this.y + 6, 16, 14);
+        }
+
+        // Eye
+        ctx.fillStyle = "black";
+        if (this.vx >= 0) {
+            ctx.fillRect(this.x + 18, this.y + 8, 4, 4);
+        } else {
+            ctx.fillRect(this.x + 8, this.y + 8, 4, 4);
+        }
+
+        // Mustache
+        if (this.vx >= 0) {
+            ctx.fillRect(this.x + 20, this.y + 14, 8, 4);
+        } else {
+            ctx.fillRect(this.x + 2, this.y + 14, 8, 4);
+        }
+
+        // Overalls
+        ctx.fillStyle = "#0000cc";
+        ctx.fillRect(this.x + 4, this.y + 20, 22, 10);
     }
 }
 
@@ -285,9 +337,15 @@ class Game {
         this.map = new Level(this.width, this.height);
         // Correctly placed enemies on platforms
         this.enemies = [
-            new Enemy(this, 260, 360), // On platform row 10
-            new Enemy(this, 460, 240)  // On platform row 7
+            new Enemy(this, 260, 360),
+            new Enemy(this, 460, 240),
+            new Enemy(this, 1140, 320), // Area 2 platform
+            new Enemy(this, 1500, 480)  // Near pit 2
         ];
+
+        this.camera = { x: 0, y: 0 };
+        this.gameOver = false;
+        this.win = false;
     }
 
     start() {
@@ -304,16 +362,52 @@ class Game {
         requestAnimationFrame(timestamp => this.loop(timestamp));
     }
 
+    restart() {
+        this.player = new Player(this);
+        // Re-init enemies? Simplification: Just respawn enemies
+        this.enemies = [
+            new Enemy(this, 260, 360),
+            new Enemy(this, 460, 240),
+            new Enemy(this, 1140, 320),
+            new Enemy(this, 1500, 480)
+        ];
+        this.camera = { x: 0, y: 0 };
+        this.gameOver = false;
+        this.win = false;
+    }
+
     update(deltaTime) {
+        if (this.gameOver || this.win) {
+            if (this.input.keys.jump) {
+                this.restart();
+            }
+            return;
+        }
+
         this.player.update(deltaTime);
         this.player.checkEntityCollision(this.enemies);
 
         this.enemies.forEach(enemy => enemy.update(deltaTime));
+
+        // Update Camera
+        // Center camera on player
+        this.camera.x = this.player.x - this.width / 2;
+
+        // Clamp camera to map bounds
+        if (this.camera.x < 0) this.camera.x = 0;
+        let mapWidth = this.map.cols * this.map.tileSize;
+        if (this.camera.x > mapWidth - this.width) this.camera.x = mapWidth - this.width;
     }
 
     draw() {
         // Clear screen
         this.ctx.clearRect(0, 0, this.width, this.height);
+
+        this.ctx.save();
+        this.ctx.translate(-this.camera.x, 0);
+
+        // Draw Clouds (Parallax effect)
+        this.drawClouds();
 
         // Draw Map
         this.map.draw(this.ctx);
@@ -323,6 +417,51 @@ class Game {
 
         // Draw Player
         this.player.draw(this.ctx);
+
+        this.ctx.restore();
+
+        // UI Overlay
+        if (this.gameOver) {
+            this.ctx.fillStyle = "rgba(0,0,0,0.7)";
+            this.ctx.fillRect(0, 0, this.width, this.height);
+            this.ctx.fillStyle = "red";
+            this.ctx.font = "40px Courier New";
+            this.ctx.textAlign = "center";
+            this.ctx.fillText("GAME OVER", this.width / 2, this.height / 2);
+            this.ctx.fillStyle = "white";
+            this.ctx.font = "20px Courier New";
+            this.ctx.fillText("Press Jump to Restart", this.width / 2, this.height / 2 + 40);
+        } else if (this.win) {
+            this.ctx.fillStyle = "rgba(0,0,0,0.7)";
+            this.ctx.fillRect(0, 0, this.width, this.height);
+            this.ctx.fillStyle = "gold";
+            this.ctx.font = "40px Courier New";
+            this.ctx.textAlign = "center";
+            this.ctx.fillText("LEVEL CLEAR!", this.width / 2, this.height / 2);
+            this.ctx.fillStyle = "white";
+            this.ctx.font = "20px Courier New";
+            this.ctx.fillText("Press Jump to Play Again", this.width / 2, this.height / 2 + 40);
+        }
+    }
+
+    drawClouds() {
+        // Draw some simple clouds
+        this.ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+
+        // Positions relative to map, but moving slower (parallax) if we wanted complex parallax,
+        // but for now just static clouds in the sky relative to map
+        const clouds = [
+            {x: 100, y: 100}, {x: 300, y: 50}, {x: 600, y: 120},
+            {x: 900, y: 80}, {x: 1300, y: 150}, {x: 1800, y: 60}
+        ];
+
+        clouds.forEach(cloud => {
+             this.ctx.beginPath();
+             this.ctx.arc(cloud.x, cloud.y, 30, 0, Math.PI * 2);
+             this.ctx.arc(cloud.x + 25, cloud.y - 10, 35, 0, Math.PI * 2);
+             this.ctx.arc(cloud.x + 50, cloud.y, 30, 0, Math.PI * 2);
+             this.ctx.fill();
+        });
     }
 }
 
@@ -361,13 +500,47 @@ class Enemy {
     }
 
     draw(ctx) {
-        ctx.fillStyle = this.color;
-        ctx.fillRect(this.x, this.y, this.width, this.height);
+        // Mushroom body (Brown/Blue)
+        ctx.fillStyle = this.color; // Blueish body? Goombas are usually brown but let's keep blue for contrast or change to brown
+        // Let's make it brown like a Goomba
+        ctx.fillStyle = "#8B4513";
+
+        // Triangle/Trapezoid shape for head
+        ctx.beginPath();
+        ctx.moveTo(this.x + 4, this.y + this.height);
+        ctx.lineTo(this.x, this.y + 10);
+        ctx.quadraticCurveTo(this.x + this.width / 2, this.y - 5, this.x + this.width, this.y + 10);
+        ctx.lineTo(this.x + this.width - 4, this.y + this.height);
+        ctx.fill();
+
+        // Stem / Feet area
+        ctx.fillStyle = "black";
+        ctx.fillRect(this.x + 6, this.y + this.height - 6, 8, 6);
+        ctx.fillRect(this.x + 16, this.y + this.height - 6, 8, 6);
 
         // Angry eyes
         ctx.fillStyle = "white";
-        ctx.fillRect(this.x + 5, this.y + 10, 8, 8);
-        ctx.fillRect(this.x + 17, this.y + 10, 8, 8);
+        ctx.beginPath();
+        ctx.ellipse(this.x + 10, this.y + 15, 5, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(this.x + 20, this.y + 15, 5, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pupils
+        ctx.fillStyle = "black";
+        ctx.beginPath();
+        ctx.arc(this.x + 10, this.y + 15, 2, 0, Math.PI*2);
+        ctx.arc(this.x + 20, this.y + 15, 2, 0, Math.PI*2);
+        ctx.fill();
+
+        // Eyebrows
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x + 6, this.y + 10);
+        ctx.lineTo(this.x + 14, this.y + 14);
+        ctx.moveTo(this.x + 24, this.y + 10);
+        ctx.lineTo(this.x + 16, this.y + 14);
+        ctx.stroke();
     }
 }
 
