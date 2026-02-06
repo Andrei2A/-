@@ -542,8 +542,17 @@ class Game {
         this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 
+    resumeAudio() {
+        if (this.audioCtx && this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+        }
+    }
+
     playSound(type) {
         if (!this.audioCtx) return;
+
+        // Ensure audio is running
+        this.resumeAudio();
 
         const osc = this.audioCtx.createOscillator();
         const gain = this.audioCtx.createGain();
@@ -624,6 +633,11 @@ class Game {
     }
 
     update(deltaTime) {
+        // Resume audio on any input key active
+        if (this.input.keys.jump || this.input.keys.left || this.input.keys.right) {
+            this.resumeAudio();
+        }
+
         if (this.gameOver || this.win) {
             if (this.input.keys.jump) {
                 this.restart();
