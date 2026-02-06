@@ -32,7 +32,7 @@ class Level {
         // Make level 3x wider than screen
         this.cols = (width * 3) / this.tileSize;
 
-        // 0 = Air, 1 = Ground/Brick, 2 = Tube, 3 = Pit, 9 = Finish
+        // 0 = Air, 1 = Ground/Brick, 2 = Tube, 3 = Brick, 4 = Question, 5 = Used, 9 = Finish
         this.map = [];
         this.initMap();
     }
@@ -61,12 +61,17 @@ class Level {
 
                 // Platforms
                 // Area 1
-                if (r === 10 && c > 5 && c < 10) tile = 1;
+                if (r === 10 && c > 5 && c < 10) tile = 3; // Bricks
                 if (r === 7 && c > 10 && c < 15) tile = 1;
 
                 // Area 2 (After first pit)
-                if (r === 9 && c > 28 && c < 33) tile = 1;
+                if (r === 9 && c > 28 && c < 33) tile = 3; // Bricks
                 if (r === 5 && c > 34 && c < 38) tile = 1;
+
+                // Question Blocks
+                if (r === 7 && c === 8) tile = 4;
+                if (r === 6 && c === 30) tile = 4;
+                if (r === 10 && c === 31) tile = 4;
 
                 // Tubes (Green blocks for now)
                 if (r === this.rows - 3 && c === 18) tile = 2; // Short tube
@@ -110,12 +115,41 @@ class Level {
                         ctx.fillRect(x, y, this.tileSize, this.tileSize);
                         ctx.strokeStyle = '#006400';
                         ctx.strokeRect(x, y, this.tileSize, this.tileSize);
+                    } else if (tile === 3) { // Brick
+                        ctx.fillStyle = '#A0522D';
+                        ctx.fillRect(x, y, this.tileSize, this.tileSize);
+                        ctx.strokeStyle = 'black';
+                        ctx.strokeRect(x, y, this.tileSize, this.tileSize);
+                        // Brick pattern
+                        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                        ctx.fillRect(x, y+10, this.tileSize, 2);
+                        ctx.fillRect(x+20, y, 2, 10);
+                        ctx.fillRect(x+10, y+10, 2, 30);
+                    } else if (tile === 4) { // Question
+                        ctx.fillStyle = '#FFD700'; // Gold
+                        ctx.fillRect(x, y, this.tileSize, this.tileSize);
+                        ctx.strokeStyle = '#B8860B';
+                        ctx.strokeRect(x, y, this.tileSize, this.tileSize);
+                        ctx.fillStyle = '#B8860B';
+                        ctx.font = "bold 20px Courier New";
+                        ctx.fillText("?", x + 12, y + 28);
+                    } else if (tile === 5) { // Used
+                        ctx.fillStyle = '#805030'; // Brown
+                        ctx.fillRect(x, y, this.tileSize, this.tileSize);
+                        ctx.strokeStyle = 'black';
+                        ctx.strokeRect(x, y, this.tileSize, this.tileSize);
                     } else if (tile === 9) {
                         ctx.fillStyle = '#FFD700'; // Gold finish
                         ctx.fillRect(x, y, this.tileSize, this.tileSize);
                     }
                 }
             }
+        }
+    }
+
+    setTileAt(c, r, tile) {
+        if (r >= 0 && r < this.rows && c >= 0 && c < this.cols) {
+            this.map[r][c] = tile;
         }
     }
 
@@ -156,6 +190,14 @@ class Player {
         this.maxJumps = 2;
         this.jumpPressed = false; // To prevent holding jump to fly
 
+        // Animation
+        this.animTimer = 0;
+        this.frame = 0; // 0 = stand, 1 = walk1, 2 = walk2
+        this.facingRight = true;
+
+        // Powerups
+        this.isBig = false;
+
         this.color = '#ff0000'; // Mario Red
     }
 
@@ -163,10 +205,24 @@ class Player {
         // Input Handling
         if (this.game.input.keys.left) {
             this.vx -= this.speed;
+            this.facingRight = false;
         }
         if (this.game.input.keys.right) {
             this.vx += this.speed;
+            this.facingRight = true;
         }
+
+        // Animation Logic
+        if (Math.abs(this.vx) > 0.1 && this.grounded) {
+            this.animTimer += deltaTime;
+            if (this.animTimer > 100) { // Switch frame every 100ms
+                this.frame = (this.frame + 1) % 2; // Toggle 0 and 1
+                this.animTimer = 0;
+            }
+        } else {
+            this.frame = 0;
+        }
+        if (!this.grounded) this.frame = 2; // Jump frame
 
         // Jump Logic
         if (this.game.input.keys.jump) {
@@ -175,6 +231,7 @@ class Player {
                     this.vy = this.jumpStrength;
                     this.grounded = false;
                     this.jumpCount++;
+                    this.game.playSound('jump');
 
                     // Slightly weaker second jump? Optional.
                     // if (this.jumpCount > 1) this.vy = this.jumpStrength * 0.8;
@@ -243,6 +300,47 @@ class Player {
         }
     }
 
+    // Check collision with Items
+    checkItemCollision(items) {
+        for (let i = items.length - 1; i >= 0; i--) {
+            let item = items[i];
+            if (
+                this.x < item.x + item.width &&
+                this.x + this.width > item.x &&
+                this.y < item.y + item.height &&
+                this.y + this.height > item.y
+            ) {
+                // Collect Item
+                if (item.type === 'mushroom') {
+                    this.grow();
+                    this.game.score += 1000;
+                    this.game.playSound('powerup');
+                }
+                items.splice(i, 1);
+            }
+        }
+    }
+
+    grow() {
+        if (!this.isBig) {
+            this.isBig = true;
+            this.y -= 30; // Shift up to avoid ground clip
+            this.height = 60;
+            // Visual change? Handled in draw
+        }
+    }
+
+    takeDamage() {
+        if (this.isBig) {
+            this.isBig = false;
+            this.height = 30;
+            this.y += 30;
+            // Invincibility frames could be added here
+        } else {
+            this.game.gameOver = true;
+        }
+    }
+
     checkEntityCollision(enemies) {
         // Iterate backwards to allow removal
         for (let i = enemies.length - 1; i >= 0; i--) {
@@ -260,8 +358,8 @@ class Player {
                     this.vy = -8; // Bounce
                     enemies.splice(i, 1);
                 } else {
-                    // Die
-                    this.game.gameOver = true;
+                    // Take Damage
+                    this.takeDamage();
                 }
             }
         }
@@ -286,10 +384,54 @@ class Player {
                 this.jumpCount = 0; // Reset jumps on landing
             }
         } else if (this.vy < 0) { // Jumping up
-            if (tl === 1 || tr === 1) {
-                this.y = (Math.floor(top / this.game.map.tileSize) + 1) * this.game.map.tileSize;
-                this.vy = 0;
+            if (tl !== 0 || tr !== 0) { // Hit something
+                // Check blocks
+                let tileLeft = tl;
+                let tileRight = tr;
+
+                // Which block did we hit?
+                // Calculate center column to be more precise or check both
+                // If hit block 3 (Brick) or 4 (Question)
+
+                let r = Math.floor(top / this.game.map.tileSize);
+                let cLeft = Math.floor(left / this.game.map.tileSize);
+                let cRight = Math.floor(right / this.game.map.tileSize);
+
+                // Prioritize center/one contact
+                if (tileLeft === 3 || tileLeft === 4) {
+                    this.hitBlock(cLeft, r, tileLeft);
+                } else if (tileRight === 3 || tileRight === 4) {
+                    this.hitBlock(cRight, r, tileRight);
+                }
+
+                // Stop upward momentum if hit any solid block
+                if (tl === 1 || tr === 1 || tl === 3 || tr === 3 || tl === 4 || tr === 4 || tl === 5 || tr === 5) {
+                    this.y = (Math.floor(top / this.game.map.tileSize) + 1) * this.game.map.tileSize;
+                    this.vy = 0;
+                }
             }
+        }
+    }
+
+    hitBlock(c, r, tile) {
+        if (tile === 3) { // Brick
+             // Break it!
+             this.game.map.setTileAt(c, r, 0);
+             // Add score
+             this.game.score += 50;
+             this.game.playSound('bump');
+        } else if (tile === 4) { // Question
+             // Change to used
+             this.game.map.setTileAt(c, r, 5);
+             // Give reward (Coin for now)
+             this.game.score += 100;
+             this.game.playSound('coin');
+
+             // Chance to spawn Mushroom?
+             // For test, let's say block at (8, 7) spawns Mushroom
+             if (c === 8 && r === 7) {
+                 this.game.spawnMushroom(c * 40, (r - 1) * 40);
+             }
         }
     }
 
@@ -299,44 +441,72 @@ class Player {
     }
 
     draw(ctx) {
-        // Body (Red Square)
+        // Draw Mario based on frame and direction
+
+        let dir = this.facingRight ? 1 : -1;
+
+        // Helper to draw relative to center x
+        let cx = this.x + this.width / 2;
+        let cy = this.y;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(dir, 1); // Flip if facing left
+        ctx.translate(-this.width/2, 0); // Back to top-left coords relative to flipped origin
+
+        // Scale for Big Mario
+        if (this.isBig) {
+            ctx.scale(1, 2); // Stretch vertically for simple big effect
+            ctx.translate(0, -15); // Adjust for scaling center
+        }
+
+        // Body (Red Shirt)
         ctx.fillStyle = this.color;
-        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.fillRect(4, 4, 22, 26);
+
+        // Overalls (Blue)
+        ctx.fillStyle = "#0000cc";
+        ctx.fillRect(4, 20, 22, 8); // Base
+        ctx.fillRect(4, 16, 6, 12); // Strap L
+        ctx.fillRect(20, 16, 6, 12); // Strap R
+
+        // Legs Animation
+        if (this.frame === 0) { // Stand
+            ctx.fillRect(4, 28, 8, 2); // Leg L
+            ctx.fillRect(18, 28, 8, 2); // Leg R
+        } else if (this.frame === 1) { // Walk
+             // Scissor legs
+             ctx.fillRect(2, 28, 8, 2); // Leg L Back
+             ctx.fillRect(20, 28, 8, 2); // Leg R Forward
+        } else if (this.frame === 2) { // Jump
+             ctx.fillRect(2, 26, 8, 4); // Legs tucked
+             ctx.fillRect(20, 24, 8, 4);
+        }
+
+        // Head / Face
+        ctx.fillStyle = "#ffcc99";
+        ctx.fillRect(4, 4, 20, 14);
 
         // Hat (Visor)
         ctx.fillStyle = "#8b0000";
-        if (this.vx >= 0) {
-            ctx.fillRect(this.x + 10, this.y, 24, 6);
-        } else {
-            ctx.fillRect(this.x - 4, this.y, 24, 6);
-        }
-
-        // Face (Flesh tone)
-        ctx.fillStyle = "#ffcc99";
-        if (this.vx >= 0) {
-            ctx.fillRect(this.x + 10, this.y + 6, 16, 14);
-        } else {
-            ctx.fillRect(this.x + 4, this.y + 6, 16, 14);
-        }
+        ctx.fillRect(4, 0, 26, 4); // Hat top/brim
 
         // Eye
         ctx.fillStyle = "black";
-        if (this.vx >= 0) {
-            ctx.fillRect(this.x + 18, this.y + 8, 4, 4);
-        } else {
-            ctx.fillRect(this.x + 8, this.y + 8, 4, 4);
-        }
+        ctx.fillRect(18, 6, 4, 4);
 
         // Mustache
-        if (this.vx >= 0) {
-            ctx.fillRect(this.x + 20, this.y + 14, 8, 4);
+        ctx.fillRect(18, 12, 8, 4);
+
+        // Arms
+        ctx.fillStyle = this.color;
+        if (this.frame === 1) {
+            ctx.fillRect(10, 16, 12, 6); // Swinging arm
         } else {
-            ctx.fillRect(this.x + 2, this.y + 14, 8, 4);
+            ctx.fillRect(2, 16, 8, 10); // Arm side
         }
 
-        // Overalls
-        ctx.fillStyle = "#0000cc";
-        ctx.fillRect(this.x + 4, this.y + 20, 22, 10);
+        ctx.restore();
     }
 }
 
@@ -365,6 +535,63 @@ class Game {
         this.camera = { x: 0, y: 0 };
         this.gameOver = false;
         this.win = false;
+        this.score = 0;
+        this.items = [];
+
+        // Audio
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    playSound(type) {
+        if (!this.audioCtx) return;
+
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(this.audioCtx.destination);
+
+        const now = this.audioCtx.currentTime;
+
+        if (type === 'jump') {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        } else if (type === 'coin') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(900, now);
+            osc.frequency.setValueAtTime(1200, now + 0.05);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        } else if (type === 'bump') {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(100, now);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        } else if (type === 'powerup') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(300, now);
+            osc.frequency.linearRampToValueAtTime(600, now + 0.5);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0.01, now + 0.5);
+            osc.start(now);
+            osc.stop(now + 0.5);
+        } else if (type === 'die') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now + 0.5);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+            osc.start(now);
+            osc.stop(now + 0.5);
+        }
     }
 
     start() {
@@ -393,6 +620,7 @@ class Game {
         this.camera = { x: 0, y: 0 };
         this.gameOver = false;
         this.win = false;
+        this.score = 0;
     }
 
     update(deltaTime) {
@@ -405,8 +633,10 @@ class Game {
 
         this.player.update(deltaTime);
         this.player.checkEntityCollision(this.enemies);
+        this.player.checkItemCollision(this.items);
 
         this.enemies.forEach(enemy => enemy.update(deltaTime));
+        this.items.forEach(item => item.update(deltaTime));
 
         // Update Camera
         // Center camera on player
@@ -434,10 +664,18 @@ class Game {
         // Draw Enemies
         this.enemies.forEach(enemy => enemy.draw(this.ctx));
 
+        // Draw Items
+        this.items.forEach(item => item.draw(this.ctx));
+
         // Draw Player
         this.player.draw(this.ctx);
 
         this.ctx.restore();
+
+        // Draw HUD (Score)
+        this.ctx.fillStyle = "white";
+        this.ctx.font = "20px Courier New";
+        this.ctx.fillText("SCORE: " + this.score, 20, 30);
 
         // UI Overlay
         if (this.gameOver) {
@@ -481,6 +719,73 @@ class Game {
              this.ctx.arc(cloud.x + 50, cloud.y, 30, 0, Math.PI * 2);
              this.ctx.fill();
         });
+    }
+
+    spawnMushroom(x, y) {
+        this.items.push(new Item(this, x, y, 'mushroom'));
+    }
+}
+
+class Item {
+    constructor(game, x, y, type) {
+        this.game = game;
+        this.x = x;
+        this.y = y;
+        this.width = 30;
+        this.height = 30;
+        this.type = type; // 'mushroom'
+        this.vx = 2;
+        this.vy = 0;
+    }
+
+    update(deltaTime) {
+        // Simple Physics (Gravity + Move)
+        this.vy += 0.5;
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Collision with map
+        let bottom = this.y + this.height;
+        let right = this.x + this.width;
+
+        // Floor check
+        let bl = this.game.map.getTileAt(this.x, bottom);
+        let br = this.game.map.getTileAt(right, bottom);
+
+        if (bl === 1 || br === 1 || bl === 3 || br === 3 || bl === 4 || br === 4 || bl === 5 || br === 5) {
+             this.y = (Math.floor(bottom / 40) * 40) - this.height;
+             this.vy = 0;
+        }
+
+        // Wall check (Turn around)
+        let midY = this.y + 15;
+        let tl = this.game.map.getTileAt(this.x, midY);
+        let tr = this.game.map.getTileAt(right, midY);
+
+        if (this.vx > 0 && (tr !== 0)) this.vx = -this.vx;
+        if (this.vx < 0 && (tl !== 0)) this.vx = -this.vx;
+    }
+
+    draw(ctx) {
+        if (this.type === 'mushroom') {
+            ctx.fillStyle = "red";
+            ctx.beginPath();
+            ctx.arc(this.x + 15, this.y + 10, 15, 0, Math.PI, true); // Cap
+            ctx.fill();
+
+            ctx.fillStyle = "white"; // Spots
+            ctx.beginPath();
+            ctx.arc(this.x + 15, this.y + 5, 5, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.fillStyle = "#ffcc99"; // Stem
+            ctx.fillRect(this.x + 5, this.y + 10, 20, 20);
+
+            // Eyes
+            ctx.fillStyle = "black";
+            ctx.fillRect(this.x + 10, this.y + 15, 2, 6);
+            ctx.fillRect(this.x + 18, this.y + 15, 2, 6);
+        }
     }
 }
 
